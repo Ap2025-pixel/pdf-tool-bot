@@ -7,6 +7,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from pdf_utils import PDFTool
 
+# ⬇️ Flask imports (Render Web Service එකට අවශ්‍යයි)
+from flask import Flask
+from threading import Thread
+
 load_dotenv()
 
 # Configuration
@@ -18,6 +22,22 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# ============ FLASK SERVER (KEEP ALIVE) ============
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "PDF Tool Bot is alive!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
 
 # ============ HELPERS ============
 def show_main_menu():
@@ -155,13 +175,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Check if it's a PDF for operations that require PDF
     if operation in ["watermark", "removepages", "pdftoword"]:
         if not document.mime_type or document.mime_type != "application/pdf":
             await update.message.reply_text("⚠️ Please send a PDF file!")
             return
     
-    # Download the file
     file = await document.get_file()
     file_bytes = await file.download_as_bytearray()
     
@@ -212,7 +230,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif operation == "imagestopdf":
-        # Check if it's an image
         if not document.mime_type or not document.mime_type.startswith('image/'):
             await update.message.reply_text("⚠️ Please send an image file (JPG/PNG)!")
             return
@@ -226,7 +243,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle images sent as compressed photos (not as files/documents)"""
+    """Handle images sent as compressed photos"""
     operation = context.user_data.get('operation', '')
 
     if operation != "imagestopdf":
@@ -250,7 +267,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /done command - finishes merge or images-to-pdf flow"""
+    """Handle /done command"""
     operation = context.user_data.get('operation', '')
 
     if operation == "merge":
@@ -313,7 +330,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text messages for watermark text and page numbers"""
     text = update.message.text.strip()
     
-    # ============ WATERMARK TEXT ============
     if context.user_data.get('awaiting_watermark_text'):
         try:
             pdf_bytes = context.user_data.get('current_pdf')
@@ -340,7 +356,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['awaiting_watermark_text'] = False
         return
     
-    # ============ REMOVE PAGES ============
     if context.user_data.get('awaiting_pages'):
         try:
             pdf_bytes = context.user_data.get('current_pdf')
@@ -367,7 +382,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['awaiting_pages'] = False
         return
     
-    # ============ UNKNOWN TEXT ============
     await update.message.reply_text(
         "⚠️ I didn't understand that.\n\n"
         "Use /start to see the menu.",
@@ -382,6 +396,10 @@ def main():
     if not BOT_TOKEN:
         print("❌ ERROR: BOT_TOKEN not found!")
         return
+
+    # Flask server එක start කරනවා (Render Web Service එකට port bind කරන්න)
+    keep_alive()
+    print("🌐 Health check server started!")
     
     app = Application.builder().token(BOT_TOKEN).build()
     
@@ -395,7 +413,6 @@ def main():
     
     print("✅ Bot is running!")
     print("📚 Features: Watermark | Remove Pages | Merge | Images to PDF | PDF to Word")
-    print("⏹️ Press CTRL+C to stop")
     print("="*50 + "\n")
     
     app.run_polling()
